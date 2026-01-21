@@ -132,51 +132,74 @@ ___TEMPLATE_PARAMETERS___
 
 ___SANDBOXED_JS_FOR_SERVER___
 
+const json = require('JSON');
+const logToConsole = require('logToConsole');
 
-    'use strict';
+// Mapping von Template-Parameter-Namen (lang) zu Output-Namen (kurz)
+const FIELD_MAPPING = {
+    brand_name: 'brn',
+    discount_value: 'dsv',
+    name: 'prn',
+    position_order_number: 'id',
+    position_uuid: 'uuid',
+    product_category: 'prc',
+    product_id: 'pid',
+    product_price: 'pri',
+    quantity: 'qty',
+    shipping_costs: 'shp',
+    stock_keeping_unit: 'sku',
+    tax: 'tax',
+    tracking_category: 'trc'
+};
 
-    var json = require('JSON');
+// Alle Template-Parameter-Namen
+const FIELDS = [
+    'brand_name', 'discount_value', 'name', 'position_order_number',
+    'position_uuid', 'product_category', 'product_id', 'product_price',
+    'quantity', 'shipping_costs', 'stock_keeping_unit', 'tax', 'tracking_category'
+];
 
-    var logToConsole = require('logToConsole');
+function getDefault(field, index) {
+    if (field === 'tracking_category') {
+        return 'default';
+    }
+    if (field === 'position_order_number') {
+        return '' + (index + 1);
+    }
+    return '';
+}
 
+function getValue(entry, fieldMapping, defaultValue) {
+    if (fieldMapping && entry[fieldMapping]) {
+        return entry[fieldMapping];
+    }
+    return defaultValue;
+}
 
-        function transformProducts(unparsedProducts, brand_name_name, discount_value_name, name_name, position_order_number_name, position_uuid_name, product_category_name, product_id_name, product_price_name, quantity_name, shipping_costs_name, stock_keeping_unit_name, tax_name, tracking_category_name) {
-            var parsedProducts = unparsedProducts.map(function (entry, index) {
-                var basketEntry = {
-                    brand_name: brand_name_name && entry[brand_name_name] ? entry[brand_name_name] : '',
-                    discount_value: discount_value_name && entry[discount_value_name] ? entry[discount_value_name] : '',
-                    name: name_name && entry[name_name] ? entry[name_name] : '',
-                    position_order_number: position_order_number_name && entry[position_order_number_name] ? entry[position_order_number_name] : (index + 1).toString(),
-                    position_uuid: position_uuid_name && entry[position_uuid_name] ? entry[position_uuid_name] : '',
-                    product_category: product_category_name && entry[product_category_name] ? entry[product_category_name] : '',
-                    product_id: product_id_name && entry[product_id_name] ? entry[product_id_name] : '',
-                    product_price: product_price_name && entry[product_price_name] ? entry[product_price_name] : '',
-                    quantity: quantity_name && entry[quantity_name] ? entry[quantity_name] : '',
-                    shipping_costs: shipping_costs_name && entry[shipping_costs_name] ? entry[shipping_costs_name] : '',
-                    stock_keeping_unit: stock_keeping_unit_name && entry[stock_keeping_unit_name] ? entry[stock_keeping_unit_name] : '',
-                    tax: tax_name && entry[tax_name] ? entry[tax_name] : '',
-                    tracking_category: tracking_category_name && entry[tracking_category_name] ? entry[tracking_category_name] : 'default'
-                };
-                logToConsole('basketEntry ' + json.stringify(basketEntry));
-                return basketEntry;
-            });
-            logToConsole('parsedProducts' + json.stringify(parsedProducts));
-            return parsedProducts;
-        }
-        function getDataValue(variableName) {
-            return data[variableName];
-        }
-        var products = data['basket'];
-        if (!products) {
-            return [];
-        }
-        logToConsole('products' + json.stringify(products));
-        var transformedProducts = transformProducts(products, getDataValue('brand_name'), getDataValue('discount_value'), getDataValue('name'), getDataValue('position_order_number'), getDataValue('position_uuid'), getDataValue('product_category'), getDataValue('product_id'), getDataValue('product_price'), getDataValue('quantity'), getDataValue('shipping_costs'), getDataValue('stock_keeping_unit'), getDataValue('tax'), getDataValue('tracking_category'));
-        logToConsole('transformedProducts ' + transformedProducts);
-        return transformedProducts;
+const products = data.basket;
+if (!products) {
+    return [];
+}
 
+logToConsole('products: ' + json.stringify(products));
 
+const transformedProducts = products.map(function(entry, index) {
+    const basketEntry = {};
 
+    FIELDS.forEach(function(field) {
+        const mapping = data[field];           // z.B. data.product_id = "item_id"
+        const shortName = FIELD_MAPPING[field]; // z.B. "pid"
+        const defaultVal = getDefault(field, index);
+        basketEntry[shortName] = getValue(entry, mapping, defaultVal);
+    });
+
+    logToConsole('basketEntry: ' + json.stringify(basketEntry));
+    return basketEntry;
+});
+
+logToConsole('transformedProducts: ' + json.stringify(transformedProducts));
+
+return transformedProducts;
 
 
 
@@ -187,7 +210,160 @@ ___SERVER_PERMISSIONS___
 
 ___TESTS___
 
-scenarios: []
+scenarios:
+- name: Test empty basket returns empty array
+  code: |
+    const mockData = {
+      basket: null
+    };
+
+    let result = runCode(mockData);
+    assertThat(result).isEqualTo([]);
+
+- name: Test single product transformation with short output names
+  code: |
+    const mockData = {
+      basket: [
+        {
+          item_id: 'PROD-123',
+          item_name: 'Test Product',
+          price: '29.99',
+          qty: '2',
+          item_brand: 'TestBrand'
+        }
+      ],
+      product_id: 'item_id',
+      name: 'item_name',
+      product_price: 'price',
+      quantity: 'qty',
+      brand_name: 'item_brand'
+    };
+
+    let result = runCode(mockData);
+
+    assertThat(result.length).isEqualTo(1);
+    assertThat(result[0].pid).isEqualTo('PROD-123');
+    assertThat(result[0].prn).isEqualTo('Test Product');
+    assertThat(result[0].pri).isEqualTo('29.99');
+    assertThat(result[0].qty).isEqualTo('2');
+    assertThat(result[0].brn).isEqualTo('TestBrand');
+    assertThat(result[0].id).isEqualTo('1');
+
+- name: Test multiple products with position id
+  code: |
+    const mockData = {
+      basket: [
+        { pid: 'A1', pname: 'Product A' },
+        { pid: 'B2', pname: 'Product B' },
+        { pid: 'C3', pname: 'Product C' }
+      ],
+      product_id: 'pid',
+      name: 'pname'
+    };
+
+    let result = runCode(mockData);
+
+    assertThat(result.length).isEqualTo(3);
+    assertThat(result[0].id).isEqualTo('1');
+    assertThat(result[1].id).isEqualTo('2');
+    assertThat(result[2].id).isEqualTo('3');
+    assertThat(result[0].pid).isEqualTo('A1');
+    assertThat(result[1].pid).isEqualTo('B2');
+
+- name: Test missing field mapping returns empty string
+  code: |
+    const mockData = {
+      basket: [
+        { id: 'TEST-1' }
+      ],
+      product_id: 'id'
+    };
+
+    let result = runCode(mockData);
+
+    assertThat(result[0].pid).isEqualTo('TEST-1');
+    assertThat(result[0].prn).isEqualTo('');
+    assertThat(result[0].brn).isEqualTo('');
+    assertThat(result[0].qty).isEqualTo('');
+
+- name: Test default tracking_category
+  code: |
+    const mockData = {
+      basket: [
+        { id: 'TEST-1' }
+      ],
+      product_id: 'id'
+    };
+
+    let result = runCode(mockData);
+
+    assertThat(result[0].trc).isEqualTo('default');
+
+- name: Test custom tracking_category
+  code: |
+    const mockData = {
+      basket: [
+        { id: 'TEST-1', cat: 'electronics' }
+      ],
+      product_id: 'id',
+      tracking_category: 'cat'
+    };
+
+    let result = runCode(mockData);
+
+    assertThat(result[0].trc).isEqualTo('electronics');
+
+- name: Test all short field names in output
+  code: |
+    const mockData = {
+      basket: [
+        {
+          myId: '1',
+          myUuid: 'abc-123',
+          myPid: 'PROD-1',
+          myName: 'Widget',
+          mySku: 'SKU-001',
+          myPrice: '19.99',
+          myBrand: 'Acme',
+          myQty: '3',
+          myDiscount: '2.00',
+          myShipping: '5.00',
+          myTax: '1.50',
+          myCategory: 'gadgets',
+          myProdCat: 'electronics'
+        }
+      ],
+      position_order_number: 'myId',
+      position_uuid: 'myUuid',
+      product_id: 'myPid',
+      name: 'myName',
+      stock_keeping_unit: 'mySku',
+      product_price: 'myPrice',
+      brand_name: 'myBrand',
+      quantity: 'myQty',
+      discount_value: 'myDiscount',
+      shipping_costs: 'myShipping',
+      tax: 'myTax',
+      tracking_category: 'myCategory',
+      product_category: 'myProdCat'
+    };
+
+    let result = runCode(mockData);
+
+    assertThat(result[0].id).isEqualTo('1');
+    assertThat(result[0].uuid).isEqualTo('abc-123');
+    assertThat(result[0].pid).isEqualTo('PROD-1');
+    assertThat(result[0].prn).isEqualTo('Widget');
+    assertThat(result[0].sku).isEqualTo('SKU-001');
+    assertThat(result[0].pri).isEqualTo('19.99');
+    assertThat(result[0].brn).isEqualTo('Acme');
+    assertThat(result[0].qty).isEqualTo('3');
+    assertThat(result[0].dsv).isEqualTo('2.00');
+    assertThat(result[0].shp).isEqualTo('5.00');
+    assertThat(result[0].tax).isEqualTo('1.50');
+    assertThat(result[0].trc).isEqualTo('gadgets');
+    assertThat(result[0].prc).isEqualTo('electronics');
+
 
 
 ___NOTES___
